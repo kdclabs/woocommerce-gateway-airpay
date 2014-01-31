@@ -22,6 +22,9 @@ The two together is an awsome combination for any INDIAN merchant looking for an
 
 Visit [www.kdcLabs.com](http://www.kdclabs.com/?p=115 "_KDC-Labs : WooCommerce AirPay") for more info about this plugin.
 
+= DEMO =
+[Click here](http://www.kdclabs.in/woocommerce/airpay/ "AirPay Demo") to view the Plugin in Action
+
 
 == Installation ==
 

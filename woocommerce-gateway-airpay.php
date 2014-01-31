@@ -164,7 +164,7 @@ function woocommerce_airpay_init(){
 			} else {
 				$address = $order->billing_address_1;
 			}
-			
+			$address = substr( $address, 0, 50);
 			$alldata = 	$order->billing_email.
 						$order->billing_first_name.
 						$order->billing_last_name.
@@ -176,15 +176,32 @@ function woocommerce_airpay_init(){
 						$order_number;
 			$privatekey = airpay_encrypt( $this->username.":|:".$this->password, $this->api_key );
 			$checksum = airpay_calculate_checksum( $alldata.date('Y-m-d'), $privatekey );
+			$airpay_args = array(
+				'buyerEmail' 	=> $order->billing_email,
+				'buyerPhone' 	=> $order->billing_phone,
+				'buyerFirstName'=> $order->billing_first_name,
+				'buyerLastName' => $order->billing_last_name,
+				'buyerAddress' 	=> $address,
+				'buyerCity' 	=> $order->billing_city,
+				'buyerState' 	=> $order->billing_state,
+				'buyerCountry' 	=> $order->billing_country,
+				'buyerPinCode' 	=> $order->billing_postcode,
+				'amount' 		=> $order->order_total,
+				'orderid' 		=> $order_number,
+				'privatekey' 	=> $privatekey,
+				'mercid' 		=> $this->merchant_id,
+				'checksum' 		=> $checksum,
+				'currency' 		=> '356',
+				'isocurrency' 	=> 'INR'
+			);
+			$airpay_args_array = array();
+			foreach($airpay_args as $key => $value){
+				$airpay_args_array[] = '                <input type="hidden" name="'.$key.'" value="'.$value.'">'."\n";
+			}
 
 			return '	<form action="https://payments.airpay.co.in/pay/index.php" method="post" id="airpay_payment_form">
-                <input type="hidden" name="privatekey" value="'.$privatekey.'">
-                <input type="hidden" name="mercid" value="'.$this->merchant_id.'">
-				<input type="hidden" name="orderid" value="'.$order_number.'">
- 		        <input type="hidden" name="currency" value="356">
-		        <input type="hidden" name="isocurrency" value="INR">'.
-				airpay_output_form($checksum)
-				.'<input type="submit" class="button-alt" id="submit_airpay_payment_form" value="'.__('Pay via PayU', 'kdc').'" /> <a class="button cancel" href="'.$order->get_cancel_order_url().'">'.__('Cancel order &amp; restore cart', 'kdc').'</a>
+				' . implode('', $airpay_args_array) . '
+				<input type="submit" class="button-alt" id="submit_airpay_payment_form" value="'.__('Pay via PayU', 'kdc').'" /> <a class="button cancel" href="'.$order->get_cancel_order_url().'">'.__('Cancel order &amp; restore cart', 'kdc').'</a>
 					<script type="text/javascript">
 					jQuery(function(){
 					jQuery("body").block({
@@ -343,10 +360,12 @@ function woocommerce_airpay_init(){
     	}	
 		function airpay_output_form( $checksum ) {
 			//ksort($_POST);
+			
+			buyerEmail
 			foreach( $_POST as $key => $value ) {
 				echo '                <input type="hidden" name="'.$key.'" value="'.$value.'" />'."\n";
 			}
-			echo '                <input type="hidden" name="checksum" value="'.$checksum.'" />'."\n";
+			echo ''."\n";
 		}
 		function airpay_verify_checksum( $checksum, $all, $secret ) {
 			$cal_checksum = airpay_calculate_checksum( $secret, $all );
