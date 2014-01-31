@@ -358,15 +358,6 @@ function woocommerce_airpay_init(){
 			$key = hash( 'SHA256', $salt.'@'.$data );
         	return $key;
     	}	
-		function airpay_output_form( $checksum ) {
-			//ksort($_POST);
-			
-			buyerEmail
-			foreach( $_POST as $key => $value ) {
-				echo '                <input type="hidden" name="'.$key.'" value="'.$value.'" />'."\n";
-			}
-			echo ''."\n";
-		}
 		function airpay_verify_checksum( $checksum, $all, $secret ) {
 			$cal_checksum = airpay_calculate_checksum( $secret, $all );
 			$bool = 0;
