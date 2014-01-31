@@ -45,7 +45,6 @@ function woocommerce_airpay_init(){
 			$this->password 		= $this->settings['password'];
 			$this->api_key			= $this->settings['api_key'];
 			$this->redirect_page_id = $this->settings['redirect_page_id'];
-			$this->liveurl 			= 'https://payments.airpay.co.in/pay/index.php';
 					
 			$this->msg['message'] 	= "";
 			$this->msg['class'] 	= "";
@@ -115,7 +114,7 @@ function woocommerce_airpay_init(){
       			'redirect_page_id' => array(
 					'title' 		=> __('Return Page'),
 					'type' 			=> 'select',
-					'options' 		=> $this->payupaia_get_pages('Select Page'),
+					'options' 		=> $this->airpay_get_pages('Select Page'),
 					'description' 	=> __('URL of success page', 'kdc'),
 					'desc_tip' 		=> true
                 )
@@ -152,48 +151,40 @@ function woocommerce_airpay_init(){
 		function generate_airpay_form($order_id){
 			global $woocommerce;
 			$order = new WC_Order( $order_id );
-			$txnid = $order_id.'_'.date("ymds");
 			
 			$redirect_url = ($this->redirect_page_id=="" || $this->redirect_page_id==0)?get_site_url() . "/":get_permalink($this->redirect_page_id);
 			//For wooCoomerce 2.0
 			$redirect_url = add_query_arg( 'wc-api', get_class( $this ), $redirect_url );
 
-			$productinfo = "Order $order_id";
-
-			$str = "$this->merchant_id|$txnid|$order->order_total|$productinfo|$order->billing_first_name|$order->billing_email|$order_id||||||||||$this->username";
-			$hash = strtolower(hash('sha512', $str));
-
-			$airpay_args = array(
-				'key' 			=> $this->merchant_id,
-				'hash' 			=> $hash,
-				'txnid' 		=> $txnid,
-				'amount' 		=> $order->order_total,
-				'firstname'		=> $order->billing_first_name,
-				'email' 		=> $order->billing_email,
-				'phone' 		=> $order->billing_phone,
-				'productinfo'	=> $productinfo,
-				'surl' 			=> $redirect_url,
-				'furl' 			=> $redirect_url,
-				'lastname' 		=> $order->billing_last_name,
-				'address1' 		=> $order->billing_address_1,
-				'address2' 		=> $order->billing_address_2,
-				'city' 			=> $order->billing_city,
-				'state' 		=> $order->billing_state,
-				'country' 		=> $order->billing_country,
-				'zipcode' 		=> $order->billing_postcode,
-				'curl'			=> $redirect_url,
-				'pg' 			=> 'NB',
-				'udf1' 			=> $order_id,
-				'service_provider'	=> 'payu_paisa' // must be "payu_paisa"
-			);
-			$airpay_args_array = array();
-			foreach($airpay_args as $key => $value){
-				$airpay_args_array[] = "<input type='hidden' name='$key' value='$value'/>";
+			$order_number = "WPWC".$order_id;
+			//$order_number = "WPWC".date("ymds").$order_id;
+			
+			if($order->billing_address_2 != "") {
+				$address = $order->billing_address_1.", ".$order->billing_address_2;
+			} else {
+				$address = $order->billing_address_1;
 			}
 			
-			return '	<form action="'.$this->liveurl.'" method="post" id="airpay_payment_form">
-  				' . implode('', $airpay_args_array) . '
-				<input type="submit" class="button-alt" id="submit_airpay_payment_form" value="'.__('Pay via PayU', 'kdc').'" /> <a class="button cancel" href="'.$order->get_cancel_order_url().'">'.__('Cancel order &amp; restore cart', 'kdc').'</a>
+			$alldata = 	$order->billing_email.
+						$order->billing_first_name.
+						$order->billing_last_name.
+						$address.
+						$order->billing_city.
+						$order->billing_state.
+						$order->billing_country.
+						$order->order_total.
+						$order_number;
+			$privatekey = airpay_encrypt( $this->username.":|:".$this->password, $this->api_key );
+			$checksum = airpay_calculate_checksum( $alldata.date('Y-m-d'), $privatekey );
+
+			return '	<form action="https://payments.airpay.co.in/pay/index.php" method="post" id="airpay_payment_form">
+                <input type="hidden" name="privatekey" value="'.$privatekey.'">
+                <input type="hidden" name="mercid" value="'.$this->merchant_id.'">
+				<input type="hidden" name="orderid" value="'.$order_number.'">
+ 		        <input type="hidden" name="currency" value="356">
+		        <input type="hidden" name="isocurrency" value="INR">'.
+				airpay_output_form($checksum)
+				.'<input type="submit" class="button-alt" id="submit_airpay_payment_form" value="'.__('Pay via PayU', 'kdc').'" /> <a class="button cancel" href="'.$order->get_cancel_order_url().'">'.__('Cancel order &amp; restore cart', 'kdc').'</a>
 					<script type="text/javascript">
 					jQuery(function(){
 					jQuery("body").block({
@@ -240,40 +231,49 @@ function woocommerce_airpay_init(){
 		**/
 		function check_airpay_response(){
 			global $woocommerce;
-			if( isset($_REQUEST['txnid']) && isset($_REQUEST['mihpayid']) ){
-				$order_id = $_REQUEST['udf1'];
+			if( isset($_REQUEST['TRANSACTIONID']) && isset($_REQUEST['TRANSACTIONSTATUS']) && isset($_REQUEST['ap_SecureHash']) ){
+				$order_id = $_REQUEST['TRANSACTIONID'];
 				if($order_id != ''){
 					try{
 						$order = new WC_Order( $order_id );
-						$hash = $_REQUEST['hash'];
-						$status = $_REQUEST['status'];
-						$checkhash = hash('sha512', "$this->username|$_REQUEST[status]||||||||||$_REQUEST[udf1]|$_REQUEST[email]|$_REQUEST[firstname]|$_REQUEST[productinfo]|$_REQUEST[amount]|$_REQUEST[txnid]|$this->merchant_id");
+						$status = $_REQUEST['TRANSACTIONSTATUS'];
+						$hash = $_REQUEST['ap_SecureHash'];
+						$checkhash = sprintf( "%u", crc32 ($_REQUEST['TRANSACTIONID'].':'.$_REQUEST['APTRANSACTIONID'].':'.$_REQUEST['AMOUNT'].':'.$_REQUEST['TRANSACTIONSTATUS'].':'.$_REQUEST['MESSAGE'].':'.$this->merchant_id.':'.$this->username ) );
 						$transauthorised = false;
-						
-						if( $order->status !=='completed' ){
-							if($hash == $checkhash){
-								$status = strtolower($status);
-								if($status=="success"){
+
+						if( $order->status !== 'completed' ) {
+							if( $hash == $checkhash ) {
+								$status = strtolower( $status );
+								if( $status == "200" ) {
 									$transauthorised = true;
 									$this->msg['message'] = "Thank you for shopping with us. Your account has been charged and your transaction is successful.";
 									$this->msg['class'] = 'woocommerce-message';
 									if($order->status == 'processing'){
-										$order->add_order_note('AirPay ID: '.$_REQUEST['mihpayid'].' ('.$_REQUEST['txnid'].')<br/>PG: '.$_REQUEST['PG_TYPE'].'<br/>Bank Ref: '.$_REQUEST['bank_ref_num']);
+										$order->add_order_note('AirPay ID: '.$_REQUEST['APTRANSACTIONID'].' ('.$_REQUEST['TRANSACTIONID'].')');
+										if( isset($_POST['MESSAGE']) && $_POST['MESSAGE'] != "" ) {
+											$order->add_order_note('<br/>Msg: '.$_REQUEST['MESSAGE']);
+										}
 									}else{
 										$order->payment_complete();
-										$order->add_order_note('AirPay payment successful.<br/>AirPay ID: '.$_REQUEST['mihpayid'].' ('.$_REQUEST['txnid'].')<br/>PG: '.$_REQUEST['PG_TYPE'].'<br/>Bank Ref: '.$_REQUEST['bank_ref_num']);
+										$order->add_order_note('AirPay payment successful.<br/>AirPay ID: '.$_REQUEST['APTRANSACTIONID'].' ('.$_REQUEST['TRANSACTIONID'].')');
+										if( isset($_POST['MESSAGE']) && $_POST['MESSAGE'] != "" ) {
+											$order->add_order_note('<br/>Msg: '.$_REQUEST['MESSAGE']);
+										}
 										$woocommerce -> cart -> empty_cart();
 									}
 								}else if($status=="pending"){
 									$this->msg['message'] = "Thank you for shopping with us. Right now your payment status is pending. We will keep you posted regarding the status of your order through eMail";
 									$this->msg['class'] = 'woocommerce-info';
-									$order->add_order_note('AirPay payment status is pending<br/>AirPay ID: '.$_REQUEST['mihpayid'].' ('.$_REQUEST['txnid'].')<br/>PG: '.$_REQUEST['PG_TYPE'].'<br/>Bank Ref: '.$_REQUEST['bank_ref_num']);
+									$order->add_order_note('AirPay payment status is pending<br/>AirPay ID: '.$_REQUEST['APTRANSACTIONID'].' ('.$_REQUEST['TRANSACTIONID'].')');
+									if( isset($_POST['MESSAGE']) && $_POST['MESSAGE'] != "" ) {
+										$order->add_order_note('<br/>Msg: '.$_REQUEST['MESSAGE']);
+									}
 									$order->update_status('on-hold');
 									$woocommerce -> cart -> empty_cart();
 								}else{
 									$this->msg['class'] = 'woocommerce-error';
 									$this->msg['message'] = "Thank you for shopping with us. However, the transaction has been declined.";
-									$order->add_order_note('Transaction ERROR: '.$_REQUEST['error'].'<br/>AirPay ID: '.$_REQUEST['mihpayid'].' ('.$_REQUEST['txnid'].')');
+									$order->add_order_note('Transaction ERROR: '.$_REQUEST['MESSAGE'].'<br/>AirPay ID: '.$_REQUEST['APTRANSACTIONID'].' ('.$_REQUEST['TRANSACTIONID'].')');
 								}
 							}else{
 								$this->msg['class'] = 'error';
@@ -282,8 +282,6 @@ function woocommerce_airpay_init(){
 							if($transauthorised==false){
 								$order->update_status('failed');
 							}
-							//removed for WooCOmmerce 2.0
-							//add_action('the_content', array(&$this, 'showMessage'));
 						}
 					}catch(Exception $e){
                         // $errorOccurred = true;
@@ -310,7 +308,7 @@ function woocommerce_airpay_init(){
 		*/
 		
 		// get all pages
-		function payupaia_get_pages($title = false, $indent = true) {
+		function airpay_get_pages($title = false, $indent = true) {
 			$wp_pages = get_pages('sort_column=menu_order');
 			$page_list = array();
 			if ($title) $page_list[] = $title;
@@ -331,6 +329,34 @@ function woocommerce_airpay_init(){
         	return $page_list;
     		}
 		}
+		
+		/**
+		* CheckSum for AirPay
+		**/
+		function airpay_calculate_checksum( $data, $secret_key ) {
+			$checksum = md5( $data.$secret_key );
+			return $checksum;
+		}
+		function airpay_encrypt($data, $salt) {
+			$key = hash( 'SHA256', $salt.'@'.$data );
+        	return $key;
+    	}	
+		function airpay_output_form( $checksum ) {
+			//ksort($_POST);
+			foreach( $_POST as $key => $value ) {
+				echo '                <input type="hidden" name="'.$key.'" value="'.$value.'" />'."\n";
+			}
+			echo '                <input type="hidden" name="checksum" value="'.$checksum.'" />'."\n";
+		}
+		function airpay_verify_checksum( $checksum, $all, $secret ) {
+			$cal_checksum = airpay_calculate_checksum( $secret, $all );
+			$bool = 0;
+			if( $checksum == $cal_checksum ) {
+				$bool = 1;
+			}
+			return $bool;
+		}	
+		
 		/**
 		* Add the Gateway to WooCommerce
 		**/
